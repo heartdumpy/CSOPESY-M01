@@ -1,0 +1,16 @@
+# Compiled executable
+SOURCE/CSOPESY.exe
+
+# Generated reports
+SOURCE/csopesy-log.txt
+
+# Build folders
+build/
+cmake-build-*/
+
+# Object files
+*.o
+*.obj
+
+# IDE files
+.vs/
