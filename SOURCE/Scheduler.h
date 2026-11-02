@@ -5,49 +5,88 @@
 #include "ProcessManager.h"
 
 #include <atomic>
-#include <cstdint>
-#include <memory>
-#include <mutex>
+#include <deque>
 #include <thread>
-#include <vector>
+#include <unordered_set>
 
-// Represents one simulated CPU core.
+// Internal mutable CPU-core state.
 struct CPUCore {
     int coreId = -1;
-    std::shared_ptr<Process> currentProcess = nullptr;
+
+    std::shared_ptr<Process> currentProcess;
+
+    std::uint64_t activeTicks = 0;
+    std::uint64_t idleTicks = 0;
+    std::uint64_t quantumUsed = 0;
+    std::uint64_t delayRemaining = 0;
+};
+
+// Read-only copy for reporting.
+struct CoreSnapshot {
+    int coreId = -1;
+
+    std::shared_ptr<const ProcessSnapshot> currentProcess;
 
     std::uint64_t activeTicks = 0;
     std::uint64_t idleTicks = 0;
 };
 
+// Consistent system information for console and file reports.
+struct SystemSnapshot {
+    std::uint64_t tick = 0;
+
+    std::size_t coresUsed = 0;
+    std::size_t coresAvailable = 0;
+
+    double utilization = 0;
+
+    std::vector<CoreSnapshot> cores;
+    std::vector<ProcessSnapshot> processes;
+
+    std::string error;
+};
+
 class Scheduler {
 public:
-    Scheduler() = default;
     ~Scheduler();
 
-    // Starts the scheduler using the loaded configuration.
+    // Initializes continuous execution.
+    // background=false allows deterministic internal testing.
+    bool initialize(
+        ProcessManager& manager,
+        const Config& config,
+        bool background = true
+    );
+
+    // Compatibility adapter.
     bool startScheduler(
-        ProcessManager& processManager,
+        ProcessManager& manager,
         const Config& config
     );
 
-    // Stops the scheduler.
+    // Stops execution during application shutdown.
+    // Do not use this for the scheduler-stop CLI command.
     void stopScheduler();
 
-    // Checks whether the scheduler is running.
+    // Controls automatic process generation only.
+    bool startGeneration();
+    void stopGeneration();
+
+    bool isGenerating() const;
     bool isRunning() const;
 
-    // Returns information about all CPU cores.
-    std::vector<CPUCore> getCores() const;
-
-    // Returns overall CPU utilization as a percentage.
+    std::vector<CoreSnapshot> getCores() const;
     double getCpuUtilization() const;
+
+    SystemSnapshot snapshot() const;
+
+    // Executes one simulated CPU tick.
+    void tickOnce();
 
 private:
     std::atomic<bool> running{false};
 
     std::thread schedulerThread;
-
     mutable std::mutex schedulerMutex;
 
     ProcessManager* processManager = nullptr;
@@ -55,7 +94,17 @@ private:
 
     std::vector<CPUCore> cores;
 
-    // Background scheduling loop.
+    std::deque<std::shared_ptr<Process>> ready;
+    std::unordered_set<int> known;
+
+    bool generating = false;
+
+    std::uint64_t cpuTick = 0;
+    std::uint64_t nextBatchTick = 0;
+    std::uint64_t nextName = 1;
+
+    std::string engineError;
+
     void schedulerLoop();
 };
 

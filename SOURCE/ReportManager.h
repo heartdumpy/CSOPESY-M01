@@ -2,15 +2,17 @@
 #define REPORT_MANAGER_H
 
 #include "Scheduler.h"
-#include "ProcessManager.h"
-
-#include <string>
 
 class ReportManager {
 public:
+    // Shared by screen -ls and report-util.
+    std::string formatReport(
+        const SystemSnapshot& system
+    ) const;
+
     bool generateReport(
         const Scheduler& scheduler,
-        const ProcessManager& processManager,
+        const ProcessManager& manager,
         const std::string& filename,
         std::string& errorMessage
     ) const;

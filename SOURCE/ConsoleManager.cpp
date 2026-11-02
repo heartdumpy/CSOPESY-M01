@@ -1,4 +1,3 @@
-
 #include "ConsoleManager.h"
 #include "CommandInterpreter.h"
 
@@ -14,9 +13,10 @@ ConsoleManager::~ConsoleManager() {
 }
 
 void ConsoleManager::run() {
-    std::cout << "====================================\n";
-    std::cout << "          CSOPESY OS EMULATOR\n";
-    std::cout << "====================================\n";
+    std::cout
+        << "====================================\n"
+        << "          CSOPESY OS EMULATOR\n"
+        << "====================================\n";
 
     displayMainMenu();
 
@@ -35,49 +35,73 @@ void ConsoleManager::run() {
 
     scheduler.stopScheduler();
 
-    std::cout << "\nCSOPESY emulator shutting down...\n";
+    std::cout
+        << "\nCSOPESY emulator shutting down...\n";
 }
 
 void ConsoleManager::displayMainMenu() const {
-    std::cout << "\nAvailable commands:\n";
-    std::cout << "  initialize\n";
-    std::cout << "  screen -s <process name>\n";
-    std::cout << "  screen -r <process name>\n";
-    std::cout << "  screen -ls\n";
-    std::cout << "  scheduler-start\n";
-    std::cout << "  scheduler-stop\n";
-    std::cout << "  process-smi\n";
-    std::cout << "  report-util\n";
-    std::cout << "  exit\n";
+    std::cout
+        << "\nAvailable commands:\n"
+        << "  initialize\n"
+        << "  screen -s <process name>\n"
+        << "  screen -r <process name>\n"
+        << "  screen -ls\n"
+        << "  scheduler-start\n"
+        << "  scheduler-stop\n"
+        << "  report-util\n"
+        << "  exit\n";
 }
 
-void ConsoleManager::processInput(const std::string& input) {
+void ConsoleManager::processInput(
+    const std::string& input
+) {
     std::istringstream stream(input);
-    std::string command;
 
+    std::string command;
     stream >> command;
+
+    std::string extra;
+
+    if (
+        (
+            command == "exit" ||
+            command == "initialize"
+        ) &&
+        (stream >> extra)
+    ) {
+        std::cout
+            << "Unexpected command arguments.\n";
+
+        return;
+    }
 
     if (command.empty()) {
         return;
     }
 
-    // Exit is always available, even before initialization.
+    // Exit is available before initialization.
     if (command == "exit") {
         running = false;
         scheduler.stopScheduler();
+
         return;
     }
 
-    // Initialization must happen before other commands.
-    if (!initialized && command != "initialize") {
-        std::cout << "System is not initialized.\n";
-        std::cout << "Please enter 'initialize' first.\n";
+    if (
+        !initialized &&
+        command != "initialize"
+    ) {
+        std::cout
+            << "System is not initialized.\n"
+            << "Please enter 'initialize' first.\n";
+
         return;
     }
 
     if (command == "initialize") {
         if (initialized) {
-            std::cout << "System is already initialized.\n";
+            std::cout
+                << "System is already initialized.\n";
         }
         else {
             initializeSystem();
@@ -96,7 +120,6 @@ void ConsoleManager::processInput(const std::string& input) {
 
     interpreter.executeCommand(input);
 
-    // Enter the process screen if a screen was opened.
     if (screenManager.isAttached()) {
         runProcessScreen();
     }
@@ -105,24 +128,48 @@ void ConsoleManager::processInput(const std::string& input) {
 bool ConsoleManager::initializeSystem() {
     std::string errorMessage;
 
-    if (!loadConfig("config.txt", config, errorMessage)) {
-        std::cout << "\nInitialization failed!\n";
-        std::cout << errorMessage << "\n";
-        std::cout << "Please check your config.txt file.\n";
+    if (
+        !loadConfig(
+            "config.txt",
+            config,
+            errorMessage
+        )
+    ) {
+        std::cout
+            << "\nInitialization failed!\n"
+            << errorMessage
+            << "\nPlease check your config.txt file.\n";
 
         initialized = false;
+
+        return false;
+    }
+
+    // Start execution immediately after successful initialization.
+    // Automatic process generation remains off until scheduler-start.
+    if (
+        !scheduler.initialize(
+            processManager,
+            config
+        )
+    ) {
+        std::cout
+            << "Unable to initialize scheduler.\n";
+
         return false;
     }
 
     initialized = true;
 
-    std::cout << "\nSystem initialized successfully!\n";
-    std::cout << "Number of CPU cores: "
-              << config.numCpu << "\n";
-    std::cout << "Scheduler: "
-              << config.scheduler << "\n";
-    std::cout << "Quantum cycles: "
-              << config.quantumCycles << "\n";
+    std::cout
+        << "\nSystem initialized successfully!\n"
+        << "Number of CPU cores: "
+        << config.numCpu
+        << "\nScheduler: "
+        << config.scheduler
+        << "\nQuantum cycles: "
+        << config.quantumCycles
+        << '\n';
 
     return true;
 }
@@ -136,7 +183,10 @@ void ConsoleManager::runProcessScreen() {
         config
     );
 
-    while (screenManager.isAttached() && running) {
+    while (
+        screenManager.isAttached() &&
+        running
+    ) {
         std::cout << "\nPROCESS> ";
 
         std::string input;
@@ -144,8 +194,25 @@ void ConsoleManager::runProcessScreen() {
         if (!std::getline(std::cin, input)) {
             screenManager.detachScreen();
             running = false;
+
             break;
         }
+
+        std::istringstream commandStream(input);
+
+        std::string screenCommand;
+        std::string extra;
+
+        commandStream >> screenCommand;
+
+        if (commandStream >> extra) {
+            std::cout
+                << "Unexpected process command arguments.\n";
+
+            continue;
+        }
+
+        input = screenCommand;
 
         if (input == "exit") {
             screenManager.detachScreen();
@@ -158,10 +225,12 @@ void ConsoleManager::runProcessScreen() {
         }
 
         if (input == "help") {
-            std::cout << "\nProcess screen commands:\n";
-            std::cout << "  process-smi\n";
-            std::cout << "  help\n";
-            std::cout << "  exit\n";
+            std::cout
+                << "\nProcess screen commands:\n"
+                << "  process-smi\n"
+                << "  help\n"
+                << "  exit\n";
+
             continue;
         }
 
@@ -169,8 +238,9 @@ void ConsoleManager::runProcessScreen() {
             continue;
         }
 
-        std::cout << "Unknown process screen command: "
-                  << input << "\n";
-        std::cout << "Type 'help' to see available commands.\n";
+        std::cout
+            << "Unknown process screen command: "
+            << input
+            << "\nType 'help' to see available commands.\n";
     }
 }

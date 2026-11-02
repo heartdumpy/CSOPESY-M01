@@ -1,4 +1,3 @@
-
 #ifndef CONSOLE_MANAGER_H
 #define CONSOLE_MANAGER_H
 
@@ -23,15 +22,19 @@ private:
 
     Config config{};
 
-    // Shared system components.
     ProcessManager processManager;
     ScreenManager screenManager;
     Scheduler scheduler;
     ReportManager reportManager;
 
     void displayMainMenu() const;
-    void processInput(const std::string& input);
+
+    void processInput(
+        const std::string& input
+    );
+
     bool initializeSystem();
+
     void runProcessScreen();
 };
 

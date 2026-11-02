@@ -1,99 +1,185 @@
 #include "ReportManager.h"
 
+#include <ctime>
 #include <fstream>
 #include <iomanip>
-#include <ctime>
+#include <sstream>
 
 namespace {
-    std::string getStateName(ProcessState state) {
-        switch (state) {
-            case ProcessState::NEW:
-                return "New";
-            case ProcessState::READY:
-                return "Ready";
-            case ProcessState::RUNNING:
-                return "Running";
-            case ProcessState::WAITING:
-                return "Waiting";
-            case ProcessState::TERMINATED:
-                return "Terminated";
-            default:
-                return "Unknown";
-        }
+
+std::string formatTimestamp(
+    std::chrono::system_clock::time_point point
+) {
+    const auto rawTime =
+        std::chrono::system_clock::to_time_t(point);
+
+    std::tm localTime{};
+
+#ifdef _WIN32
+    localtime_s(&localTime, &rawTime);
+#else
+    localtime_r(&rawTime, &localTime);
+#endif
+
+    std::ostringstream output;
+
+    output << std::put_time(
+        &localTime,
+        "%m/%d/%Y %I:%M:%S%p"
+    );
+
+    return output.str();
+}
+
+} // namespace
+
+std::string ReportManager::formatReport(
+    const SystemSnapshot& system
+) const {
+    std::ostringstream output;
+
+    output
+        << "========== CPU UTILIZATION REPORT ==========\n"
+        << std::fixed
+        << std::setprecision(2)
+        << "CPU utilization: "
+        << system.utilization
+        << "%\nCores used: "
+        << system.coresUsed
+        << "\nCores available: "
+        << system.coresAvailable
+        << "\nCPU tick: "
+        << system.tick
+        << '\n';
+
+    if (!system.error.empty()) {
+        output
+            << "Scheduler error: "
+            << system.error
+            << '\n';
     }
+
+    output
+        << "\nRunning and unfinished processes:\n";
+
+    for (
+        const ProcessSnapshot& process :
+        system.processes
+    ) {
+        if (
+            process.state ==
+            ProcessState::TERMINATED
+        ) {
+            continue;
+        }
+
+        output
+            << process.name
+            << " ("
+            << formatTimestamp(process.creationTime)
+            << ") PID:"
+            << process.pid
+            << ' ';
+
+        if (
+            process.state ==
+            ProcessState::RUNNING
+        ) {
+            output
+                << "Core:"
+                << process.assignedCore;
+        }
+        else if (
+            process.state ==
+            ProcessState::WAITING
+        ) {
+            output << "Sleeping";
+        }
+        else {
+            output << "Ready";
+        }
+
+        output
+            << ' '
+            << process.instructionPointer
+            << " / "
+            << process.totalInstructions
+            << '\n';
+    }
+
+    output << "\nFinished processes:\n";
+
+    for (
+        const ProcessSnapshot& process :
+        system.processes
+    ) {
+        if (
+            process.state !=
+            ProcessState::TERMINATED
+        ) {
+            continue;
+        }
+
+        output
+            << process.name
+            << " ("
+            << formatTimestamp(process.creationTime)
+            << ") PID:"
+            << process.pid
+            << " Finished "
+            << process.instructionPointer
+            << " / "
+            << process.totalInstructions
+            << '\n';
+    }
+
+    output
+        << "============================================\n";
+
+    return output.str();
 }
 
 bool ReportManager::generateReport(
     const Scheduler& scheduler,
-    const ProcessManager& processManager,
+    const ProcessManager&,
     const std::string& filename,
     std::string& errorMessage
 ) const {
     std::ofstream file(filename);
 
-    if (!file.is_open()) {
-        errorMessage = "Unable to create report file: " + filename;
+    if (!file) {
+        errorMessage =
+            "Unable to create report file: " +
+            filename;
+
         return false;
     }
 
-    const auto now = std::chrono::system_clock::to_time_t(
-        std::chrono::system_clock::now()
+    file << formatReport(
+        scheduler.snapshot()
     );
 
-    file << "========== CSOPESY CPU UTILIZATION REPORT ==========\n";
-    file << "Generated: " << std::ctime(&now) << "\n";
+    file.flush();
 
-    file << std::fixed << std::setprecision(2);
-    file << "CPU Utilization: "
-         << scheduler.getCpuUtilization() << "%\n\n";
+    if (!file) {
+        errorMessage =
+            "Error writing report: " +
+            filename;
 
-    file << "CPU Cores:\n";
-
-    const auto cores = scheduler.getCores();
-
-    for (const auto& core : cores) {
-        file << "Core " << core.coreId << ": ";
-
-        if (core.currentProcess) {
-            file << core.currentProcess->name;
-        }
-        else {
-            file << "Idle";
-        }
-
-        file << " | Active ticks: " << core.activeTicks
-             << " | Idle ticks: " << core.idleTicks << "\n";
+        return false;
     }
 
-    file << "\nProcesses:\n";
+    file.close();
 
-    const auto processes = processManager.getAllProcesses();
+    if (file.fail()) {
+        errorMessage =
+            "Error closing report: " +
+            filename;
 
-    if (processes.empty()) {
-        file << "No processes found.\n";
-    }
-
-    for (const auto& process : processes) {
-        if (!process) {
-            continue;
-        }
-
-        file << "PID: " << process->pid
-             << " | Name: " << process->name
-             << " | State: " << getStateName(process->state)
-             << " | Instructions: "
-             << process->instructionPointer
-             << "/" << process->totalInstructions
-             << "\n";
-    }
-
-    file << "====================================================\n";
-
-    if (!file.good()) {
-        errorMessage = "An error occurred while writing the report.";
         return false;
     }
 
     errorMessage.clear();
+
     return true;
 }

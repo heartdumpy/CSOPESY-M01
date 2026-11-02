@@ -1,42 +1,29 @@
-
 #include "CommandInterpreter.h"
 
 #include <iostream>
-#include <iomanip>
 #include <sstream>
 
-namespace {
-    std::string getStateName(ProcessState state) {
-        switch (state) {
-            case ProcessState::NEW: return "New";
-            case ProcessState::READY: return "Ready";
-            case ProcessState::RUNNING: return "Running";
-            case ProcessState::WAITING: return "Waiting";
-            case ProcessState::TERMINATED: return "Terminated";
-            default: return "Unknown";
-        }
-    }
-}
-
 CommandInterpreter::CommandInterpreter(
-    ProcessManager& processManager,
-    ScreenManager& screenManager,
-    Scheduler& scheduler,
-    ReportManager& reportManager,
-    const Config& config
+    ProcessManager& manager,
+    ScreenManager& screens,
+    Scheduler& schedulerInstance,
+    ReportManager& reports,
+    const Config& configuration
 )
-    : processManager(processManager),
-      screenManager(screenManager),
-      scheduler(scheduler),
-      reportManager(reportManager),
-      config(config) {
+    : processManager(manager),
+      screenManager(screens),
+      scheduler(schedulerInstance),
+      reportManager(reports),
+      config(configuration) {
 }
 
-std::vector<std::string> CommandInterpreter::tokenize(
+std::vector<std::string>
+CommandInterpreter::tokenize(
     const std::string& input
 ) {
-    std::vector<std::string> arguments;
     std::istringstream stream(input);
+
+    std::vector<std::string> arguments;
     std::string token;
 
     while (stream >> token) {
@@ -46,8 +33,11 @@ std::vector<std::string> CommandInterpreter::tokenize(
     return arguments;
 }
 
-void CommandInterpreter::executeCommand(const std::string& input) {
-    std::vector<std::string> arguments = tokenize(input);
+void CommandInterpreter::executeCommand(
+    const std::string& input
+) {
+    const std::vector<std::string> arguments =
+        tokenize(input);
 
     if (arguments.empty()) {
         return;
@@ -55,6 +45,10 @@ void CommandInterpreter::executeCommand(const std::string& input) {
 
     if (arguments[0] == "screen") {
         handleScreenCommand(arguments);
+    }
+    else if (arguments.size() != 1) {
+        std::cout
+            << "Unexpected command arguments.\n";
     }
     else {
         handleSimpleCommand(arguments[0]);
@@ -65,169 +59,145 @@ void CommandInterpreter::handleSimpleCommand(
     const std::string& command
 ) {
     if (command == "scheduler-start") {
-        if (scheduler.isRunning()) {
-            std::cout << "Scheduler is already running.\n";
-            return;
-        }
-
-        if (scheduler.startScheduler(processManager, config)) {
-            std::cout << "Scheduler started successfully.\n";
+        if (scheduler.startGeneration()) {
+            std::cout
+                << "Automatic process generation started.\n";
         }
         else {
-            std::cout << "Unable to start scheduler.\n";
+            std::cout
+                << "Generation already active "
+                << "or scheduler unavailable.\n";
         }
     }
     else if (command == "scheduler-stop") {
-        if (!scheduler.isRunning()) {
-            std::cout << "Scheduler is not running.\n";
-            return;
-        }
+        scheduler.stopGeneration();
 
-        scheduler.stopScheduler();
-        std::cout << "Scheduler stopped.\n";
+        std::cout
+            << "Automatic process generation stopped. "
+            << "Existing processes continue.\n";
     }
     else if (command == "process-smi") {
-        std::cout << "\n========== PROCESS SMI ==========\n";
-
-        std::cout << "CPU Utilization: "
-                  << std::fixed << std::setprecision(2)
-                  << scheduler.getCpuUtilization() << "%\n";
-
-        std::cout << "\nCPU Cores:\n";
-
-        for (const CPUCore& core : scheduler.getCores()) {
-            std::cout << "Core " << core.coreId << ": ";
-
-            if (core.currentProcess) {
-                std::cout << core.currentProcess->name;
-            }
-            else {
-                std::cout << "Idle";
-            }
-
-            std::cout << "\n";
+        if (screenManager.isAttached()) {
+            screenManager.displayScreen();
         }
-
-        std::cout << "\nProcesses:\n";
-
-        for (const auto& process : processManager.getAllProcesses()) {
-            if (!process) {
-                continue;
-            }
-
-            std::cout << "PID: " << process->pid
-                      << " | Name: " << process->name
-                      << " | State: " << getStateName(process->state)
-                      << " | Instructions: "
-                      << process->instructionPointer
-                      << "/" << process->totalInstructions
-                      << "\n";
+        else {
+            std::cout
+                << "process-smi is available inside "
+                << "a process screen.\n";
         }
-
-        std::cout << "=================================\n";
     }
     else if (command == "report-util") {
         std::string errorMessage;
 
-        if (reportManager.generateReport(
+        const bool saved =
+            reportManager.generateReport(
                 scheduler,
                 processManager,
                 "csopesy-log.txt",
-                errorMessage)) {
-            std::cout << "CPU utilization report generated: "
-                      << "csopesy-log.txt\n";
+                errorMessage
+            );
+
+        if (saved) {
+            std::cout
+                << "Report generated at csopesy-log.txt\n";
         }
         else {
-            std::cout << "Report generation failed: "
-                      << errorMessage << "\n";
+            std::cout
+                << "Report generation failed: "
+                << errorMessage
+                << '\n';
         }
     }
     else {
-        std::cout << "Unknown command: " << command << "\n";
+        std::cout
+            << "Unknown command: "
+            << command
+            << '\n';
     }
 }
 
 void CommandInterpreter::handleScreenCommand(
     const std::vector<std::string>& arguments
 ) {
-    if (arguments.size() < 2) {
-        std::cout << "Invalid screen command.\n";
+    if (
+        arguments.size() == 2 &&
+        arguments[1] == "-ls"
+    ) {
+        std::cout << reportManager.formatReport(
+            scheduler.snapshot()
+        );
+
         return;
     }
 
+    const bool validProcessCommand =
+        arguments.size() == 3 &&
+        (
+            arguments[1] == "-s" ||
+            arguments[1] == "-r"
+        );
+
+    if (!validProcessCommand) {
+        std::cout
+            << "Usage: screen -s <name>, "
+            << "screen -r <name>, or screen -ls\n";
+
+        return;
+    }
+
+    const std::string& processName =
+        arguments[2];
+
     if (arguments[1] == "-s") {
-        if (arguments.size() != 3) {
-            std::cout << "Usage: screen -s <process name>\n";
+        if (
+            processManager.processExists(
+                processName
+            )
+        ) {
+            std::cout
+                << "A process with that name already exists.\n";
+
             return;
         }
 
-        if (processManager.processExists(arguments[2])) {
-            std::cout << "A process with that name already exists.\n";
-            return;
-        }
+        try {
+            auto process =
+                processManager.createProcess(
+                    processName,
+                    config.minIns,
+                    config.maxIns
+                );
 
-        std::shared_ptr<Process> process =
-            processManager.createProcess(
-                arguments[2],
-                config.minIns,
-                config.maxIns
+            if (!process) {
+                std::cout
+                    << "Process creation failed.\n";
+
+                return;
+            }
+
+            screenManager.openScreen(process);
+        }
+        catch (const std::exception& exception) {
+            std::cout
+                << "Process creation failed: "
+                << exception.what()
+                << '\n';
+        }
+    }
+    else {
+        auto process =
+            processManager.findProcessByName(
+                processName
             );
 
         if (!process) {
-            std::cout << "Process creation failed.\n";
-            return;
+            std::cout
+                << "Process "
+                << processName
+                << " not found.\n";
         }
-
-        std::cout << "Process created successfully: "
-                  << process->name << "\n";
-
-        screenManager.openScreen(process);
-    }
-    else if (arguments[1] == "-r") {
-        if (arguments.size() != 3) {
-            std::cout << "Usage: screen -r <process name>\n";
-            return;
+        else {
+            screenManager.reattachScreen(process);
         }
-
-        std::shared_ptr<Process> process =
-            processManager.findProcessByName(arguments[2]);
-
-        if (!process) {
-            std::cout << "Process not found: "
-                      << arguments[2] << "\n";
-            return;
-        }
-
-        screenManager.reattachScreen(process);
-    }
-    else if (arguments[1] == "-ls") {
-        std::vector<std::shared_ptr<Process>> processes =
-            processManager.getAllProcesses();
-
-        std::cout << "\n========== PROCESS LIST ==========\n";
-
-        if (processes.empty()) {
-            std::cout << "No processes found.\n";
-        }
-
-        for (const auto& process : processes) {
-            if (!process) {
-                continue;
-            }
-
-            std::cout << "PID: " << process->pid
-                      << " | Name: " << process->name
-                      << " | State: " << getStateName(process->state)
-                      << " | Instructions: "
-                      << process->instructionPointer
-                      << "/" << process->totalInstructions
-                      << "\n";
-        }
-
-        std::cout << "==================================\n";
-    }
-    else {
-        std::cout << "Unknown screen option: "
-                  << arguments[1] << "\n";
     }
 }
