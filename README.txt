@@ -1,4 +1,8 @@
 CSOPESY MO1 - Operating System Emulator
+Group Number 8
+FERRER, ANGEL JUNE
+RODRIGO, BETINA HEART
+ROB NIGEL ROGACION
 
 1. Project Overview
 
